@@ -1,64 +1,56 @@
 const express = require("express");
+const path = require("path");
 const { Server } = require("socket.io");
-const bodyParser = require("body-parser");
 
-const io = new Server({
+const app = express();
+const PORT = 8000;
+
+// Serve static files from the "dist" folder
+app.use(express.static(path.join(__dirname, "dist")));
+
+// Handle all other routes by serving the index.html file
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
+// Create a WebSocket server
+const server = app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+const io = new Server(server, {
   cors: true,
 });
-const app = express();
 
-app.use(bodyParser.json());
-
-const emailToSocketMapping = new Map();
-const socketToEmailMapping = new Map();
+// WebSocket event handlers (your existing code)
+const emailToSocketIdMap = new Map();
+const socketIdToEmailMap = new Map();
 
 io.on("connection", (socket) => {
-  console.log("New Connection: ", socket.id);
-
-  socket.on("join-room", (data) => {
-    const { roomId, emailId } = data;
-    console.log("User ", emailId, "Joined Room", roomId);
-
-    emailToSocketMapping.set(emailId, socket.id);
-    socketToEmailMapping.set(socket.id, emailId);
-
+  console.log("Socket connected", socket.id);
+  socket.on("room:join", (data) => {
+    const { email, roomId } = data;
+    emailToSocketIdMap.set(email, socket.id);
+    socketIdToEmailMap.set(socket.id, email);
+    io.to(roomId).emit("user:joined", { email, id: socket.id });
     socket.join(roomId);
-    socket.emit("joined-room", { roomId });
-
-    // Emit user-joined event after the user has joined the room
-    socket.broadcast.to(roomId).emit("user-joined", { emailId });
+    io.to(socket.id).emit("room:join", data);
   });
 
-  socket.on("call-user", (data) => {
-    const { emailId, offer } = data;
-    const fromEmail = socketToEmailMapping.get(socket.id);
-    const socketId = emailToSocketMapping.get(emailId);
-
-    console.log(`Calling ${emailId} from ${fromEmail}`);
-
-    if (socketId) {
-      socket.to(socketId).emit("incoming-call", { from: fromEmail, offer });
-    } else {
-      console.log(`No socket found for email: ${emailId}`);
-    }
+  socket.on("user:call", (data) => {
+    const { to, offer } = data;
+    io.to(to).emit("incoming:call", { from: socket.id, offer });
   });
 
-  socket.on("call-accepted", (data) => {
-    const { emailId, ans } = data;
-    const socketId = emailToSocketMapping.get(emailId);
+  socket.on("call:accepted", ({ to, ans }) => {
+    io.to(to).emit("call:accepted", { from: socket.id, ans });
+  });
 
-    console.log(`Call accepted by ${emailId}`);
+  socket.on("peer:nego:needed", ({ to, offer }) => {
+    io.to(to).emit("peer:nego:needed", { from: socket.id, offer });
+  });
 
-    if (socketId) {
-      socket.to(socketId).emit("call-accepted", { ans });
-    } else {
-      console.log(`No socket found for email: ${emailId}`);
-    }
+  socket.on("peer:nego:done", ({ to, ans }) => {
+    io.to(to).emit("peer:nego:final", { from: socket.id, ans });
   });
 });
-
-app.listen(8000, () => {
-  console.log("Server running at PORT: 8000");
-});
-
-io.listen(8001);

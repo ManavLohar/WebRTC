@@ -4,13 +4,14 @@ import { io } from "socket.io-client";
 const SocketContext = createContext(null);
 
 export const useSocket = () => {
-  return useContext(SocketContext);
+  const socket = useContext(SocketContext);
+  return socket;
 };
 
 export const SocketProvider = (props) => {
-  const socket = useMemo(() => io("http://localhost:8001"), []);
+  const socket = useMemo(() => io(), []);
   return (
-    <SocketContext.Provider value={{ socket }}>
+    <SocketContext.Provider value={socket}>
       {props.children}
     </SocketContext.Provider>
   );
